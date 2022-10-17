@@ -1,0 +1,160 @@
+---
+title: "Homework 2"
+author: "Mason Wong"
+date: "2022-10-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library("tidyverse")
+library("tidymodels")
+library("yardstick")
+library("ggplot2")
+
+abs <- read.csv("abalone.csv")
+```
+
+## Question 1
+
+```{r}
+age <- abs$rings + 1.5
+
+abs$age <- age
+
+ggplot(abs, aes(x=age)) + geom_histogram(bins=30)
+```
+
+Since age is calculated using rings + 1.5, we can say that age is definitely dependent on ring's distribution.
+
+Looking at the above data, age follows a normal distribution
+
+## Question 2
+
+```{r}
+set.seed(100)
+
+abs_split <- initial_split(abs, prop = 0.7)
+
+abs_train <- training(abs_split)
+
+abs_test <- testing(abs_split)
+```
+
+## Question 3
+```{r}
+abs_recipe <- recipe(age~ type + longest_shell + diameter + height + whole_weight + shucked_weight + viscera_weight + shell_weight, data = abs_train) %>%
+  step_dummy(all_nominal_predictors()) %>%
+  step_interact(~ starts_with("type"):shucked_weight) %>%
+  step_interact(~ longest_shell:diameter) %>%
+  step_interact(~ shucked_weight:shell_weight)
+
+
+abs_recipe <- step_center(recipe = abs_recipe, longest_shell, diameter, height, whole_weight, shucked_weight, viscera_weight, shell_weight) 
+
+abs_recipe <- step_scale(recipe = abs_recipe, longest_shell, diameter, height, whole_weight, shucked_weight, viscera_weight, shell_weight)
+```
+  
+Since age is already dependent on rings, we shouldn't use rings as a predictor variable, or else the other predictor variables would just be equal to the 1.5 that is added to rings to make age.
+
+## Question 4
+```{r}
+abs_lm <- linear_reg() %>%
+  set_engine("lm")
+```
+
+## Question 5
+```{r}
+abs_wrkflw <- workflow() %>%
+  add_model(abs_lm) %>%
+  add_recipe(abs_recipe)
+```
+
+## Question 6
+```{r}
+abs_fit <- fit(abs_wrkflw, abs_train)
+
+abs_fit
+```
+
+Our linear regression equation is now
+$$Y = 0.8466 B_{LShell} + 2.305B_{diam} + 0.2253B_{height} + 5.2033B_{Wweight} - 4.5681B_{Sweight} - 1.05B_{Vweight} + 1.4841B_{ShellWeight} - 2.0436B_I - 0.6928B_M + 4.3375B_{Sweight}B_I + 1.6181B_{Sweight}B_M + -34.9207B_{Lshell}B_{diam} + 0.4532B_{Sweight}B_{ShellWeight} + 19.574$$
+Using the given values to predict age we get: 
+```{r}
+Y = (0.8466 * 0.5) + (2.305 * 0.1) + (0.2253 * 0.3) + (5.2033 * 4) - (4.5618 * 1) - (1.05 * 2) + (1.4841 * 1) + 0 -(34.9207 * 0.5 * 0.1) + (0.4532 * 1 * 1) + 19.574
+
+Y
+```
+
+## Question 7
+```{r}
+abs_metrics <- metric_set(rsq, rmse, mae)
+
+abs_RMSE <- predict(abs_fit, new_data = abs_train %>% select(-age))
+
+abs_RMSE %>%
+  head()
+
+abs_RMSE <- bind_cols(abs_RMSE, abs_train %>% select(age))
+
+abs_RMSE %>%
+  head()
+
+abs_metrics(abs_RMSE, truth = age, estimate = .pred)
+```
+Our model as an RMSE of 2.17, an $R^2$ value of 0.553 and an MAE of 1.554
+
+An $R^2$ value of 55.3% means that our model explains a little more than half of the variability of the response data around the mean
+
+## Question 8
+
+In the equation $$E[(y_0 - \hat{f}(x_0))^2] = Var(\hat{f}(x_0)) + [Bias(\hat{f}(x_0))^2] + Var(\epsilon)$$
+
+The reducible error is represented by the first two parts of the equation being $Var(\hat{f}(x_0)) + [Bias(\hat{f}(x_0))^2]$
+
+While the irreducible error is represented by $Var(\epsilon)$
+
+## Question 9
+
+Irreducible error for a model is a constant value as long as we are sampling from the same data set with the same model. Given that the Bias-Variance tradeoff equation is:
+$$Var(\hat{f}(x_0)) + [Bias(\hat{f}(x_0))^2] + Var(\epsilon)$$ 
+We can see that we always add $Var(\epsilon)$ or irreducible error. In the case of a model that is a perfect fit, both Variance and Bias are 0. This would give us the lowest possible value for our Bias-Variance tradeoff and yet, the lowest will alwasy be equal to $Var(\epsilon)$
+
+## Question 10
+
+### Hint way
+
+To prove that the equation holds we can start with $E[y - \hat{f}(x_0)] = E[(f(x_0) + \epsilon - \hat{f}(x_0))^2]$
+
+This results in $E[(f(x_0) - \hat{f}(x_0))^2] - \epsilon$ if we expand the equation
+
+Ignoring Epsilon we want to add abd subtract $E[\hat{f}(x_0)]$ from both elements of the expected value function and thus get
+$$E[(f(x_0) - E[\hat{f}(x_0)] - \hat{f}(x_0) + E[\hat{f}(x_0)])^2]$$
+
+which yields $$E[f(x_0)^2 + E[\hat{f}(x_0)]^2 + \hat{f}(x_0)^2 +E[\hat{f}(x_0)]^2 - 2f(x_0)\hat{f}(x_0) + 2f(x_0)E[\hat{f}(x_0)] + 2E[\hat{f}(x_0)]\hat{f}(x_0) - 2E[\hat{f}(x_0)]^2 \\ = E[E[\hat{f}(x_0)] - (\hat{f}(x_0))^2] + (E[\hat{f}(x_0)] - f(x_0))^2 - 2(f(x_0)\hat{f}(x_0) - 2E[\hat{f}(x_0)]^2$$
+
+Definition of Bias is going back to the definition of bias we know that: $$Bias(\hat{f}(x_0))^2 = [E[\hat{f}(x_0)] - f(x_0)]^2$$
+
+and Variance can be translated as: $$E[E[\hat{f}(x_0)] - (\hat{f}(x_0))^2]$$
+
+Thus we have created a function of $Bias^2(\hat{f}(x_0)) + Var(\hat{f}(x_0))$ with the leftover values being assumed as $\epsilon$
+
+### My dumb way
+
+We begin with the equation
+$$Bias(\hat{f}(x_0)) = E[\hat{f}(x_0)] - f(x_0)$$
+Taking into account that we are dealing with $Bias^2$ we have
+$$Bias(\hat{f}(x_0))^2 = [E[\hat{f}(x_0)] - f(x_0)]^2$$
+If we expand this we get
+$$E[\hat{f}(x_0)]^2 - 2E\hat{f}(x_0)]f(x_0) + f(x_0)^2$$
+As we can see in the above equation, the larger $E[\hat{f}(x_0)]^2$ is the larger Bias can be, since Bias is a factor of $E[\hat{f}(x_0)], f(x_0), and -2E[\hat{f}(x_0)]f(x_0)$
+
+Thus we can conclude that as $f(x_0)$ increases, so does $E[\hat{f}(x_0)]$.
+
+However as we take a look at the Variance equation $E[\hat{f}(x_0)^2] - E[\hat{f}(x_0)]^2$ we can see that a larger value for $E[\hat{f}(x_0)]^2$ decreases the overall output of variance as it subtracts more and more from $E[\hat{f}(x_0)^2]$.
+
+Thus we can conclude that as Bias increases in value, Variance decreases
+
